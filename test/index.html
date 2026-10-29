@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Link Saver tests</title>
+<link rel="stylesheet" href="../base.css">
+<style>
+  body { padding: 16px; }
+  #summary { font-size: 18px; font-weight: 700; }
+  #summary.pass, .pass { color: var(--success-text); }
+  #summary.fail, .fail { color: var(--error-text); }
+  #results { list-style: none; padding: 0; font: 13px/1.6 ui-monospace, Consolas, monospace; }
+  #failures { display: none; }
+  /* UI under test renders here, out of the way. */
+  #fixture { position: absolute; left: -10000px; top: 0; width: 760px; }
+</style>
+</head>
+<body>
+<p id="summary">Running…</p>
+<ul id="results"></ul>
+<pre id="failures"></pre>
+<div id="fixture"></div>
+
+<script src="harness.js"></script>
+<script src="chrome-stub.js"></script>
+<script src="../links.js"></script>
+<script src="../popup.js"></script>
+<script src="../list.js"></script>
+
+<!-- background.js expects a service worker: give it importScripts and a stub chrome.
+     The popup and list tests pass their own stubs, so only background.js uses this global. -->
+<script>
+  var importScripts = function () {};
+  globalThis.backgroundChrome = createChromeStub();
+  globalThis.chrome = globalThis.backgroundChrome;
+</script>
+<script src="../background.js"></script>
+
+<script src="links.test.js"></script>
+<script src="popup.test.js"></script>
+<script src="list.test.js"></script>
+<script src="background.test.js"></script>
+<script>T.run();</script>
+</body>
+</html>

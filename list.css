@@ -36,6 +36,8 @@ h1 { font-size: 22px; }
   padding: 10px 14px;
   border-radius: var(--radius);
   background: var(--text); color: var(--bg);
+  /* High-contrast mode drops the shadow and paints this border, so the toast keeps an edge. */
+  border: 1px solid transparent;
   box-shadow: 0 4px 16px rgb(0 0 0 / 0.2);
 }
 .toast[hidden] { display: none; }

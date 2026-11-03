@@ -71,12 +71,29 @@ button {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
+  /* The press state below replaces the browser's grey tap flash. */
+  -webkit-tap-highlight-color: transparent;
 }
 button:disabled { cursor: progress; opacity: 0.65; }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 600; }
-button.primary:hover:not(:disabled) { background: var(--accent-hover); }
 button.danger-quiet { background: none; border-color: transparent; color: var(--error-text); }
-button.danger-quiet:hover:not(:disabled) { background: var(--error-bg); }
+
+/* Hover colours only for real pointers, so they don't stick after a tap on a touchscreen. */
+@media (hover: hover) {
+  button.primary:hover:not(:disabled) { background: var(--accent-hover); }
+  button.danger-quiet:hover:not(:disabled) { background: var(--error-bg); }
+}
+
+/* Press feedback. Busy (disabled) buttons don't react, and reduced motion turns it off. */
+@media (prefers-reduced-motion: no-preference) {
+  button {
+    transition-property: scale;
+    transition-duration: 150ms;
+    transition-timing-function: ease-out;
+  }
+  button:not(:disabled):active { scale: 0.96; }
+}
+
 button.link-button { background: none; border: none; padding: 2px 4px; color: var(--accent); text-decoration: underline; }
 
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }

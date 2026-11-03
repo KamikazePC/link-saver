@@ -1,14 +1,70 @@
-body { width: 340px; }
+/* Chrome popups are at most 800×600. Every state here stays under 600px tall. */
+body { width: 360px; }
+#app { padding: 16px; }
+.screen, .stack-form { display: flex; flex-direction: column; gap: 12px; }
+.small { font-size: 12px; }
+.center { text-align: center; }
+.headline { font-size: 24px; line-height: 28px; font-weight: 800; letter-spacing: -0.01em; }
+.headline.small { font-size: 20px; line-height: 24px; }
 
-#app, form { display: flex; flex-direction: column; gap: 12px; }
-#app { padding: 14px; }
+.top { display: flex; align-items: center; gap: 8px; }
+.brand { flex: 1; font-weight: 800; font-size: 17px; }
 
-.bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* Preview card */
+.preview-card { border: 1px solid var(--line); border-radius: 18px; overflow: hidden; background: var(--control); }
+.preview {
+  position: relative; display: grid; place-items: center; height: 104px;
+  border-bottom: 1px solid #111111; color: var(--on-kind);
+  background: var(--grain-soft) var(--kind);
+  transition-property: background-color; transition-duration: 200ms; transition-timing-function: ease;
+}
+.preview .kind-chip { position: absolute; left: 12px; top: 12px; border-width: 1.5px; }
+.saved-badge {
+  position: absolute; right: 12px; bottom: 12px; padding: 5px 12px;
+  border: 2px solid #111111; border-radius: var(--r-pill); background: #FFFFFF; color: #111111;
+  font-size: 12px; font-weight: 800;
+}
+.details { display: grid; gap: 4px; padding: 10px 14px 12px; }
+.title-row { display: flex; align-items: flex-start; gap: 8px; }
+.title { flex: 1; font-weight: 700; font-size: 16px; line-height: 20px; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.title-input { flex: 1; min-width: 0; font-weight: 700; font-size: 16px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--control); }
+.site { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.favicon { width: 14px; height: 14px; border: 1px solid var(--line); border-radius: 50%; background: var(--control); flex: none; }
+.hint { line-height: 16px; }
 
-.field { display: flex; flex-direction: column; gap: 4px; }
-.field label { font-weight: 600; }
-.optional { font-weight: 400; color: var(--muted); }
-.hint, .url { margin: 0; font-size: 12px; color: var(--muted); }
-.url { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.field { min-height: 52px; max-height: 120px; }
+.collections { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.chip-input { min-height: 26px; width: 150px; padding: 2px 12px; border: 1px solid var(--line); border-radius: var(--r-pill); background: var(--control); font-size: 12px; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.actions { display: flex; gap: 8px; }
+.actions > .btn { flex: 1; }
 
-.actions { display: flex; justify-content: flex-end; gap: 8px; }
+/* Saved: the folder with its stack, and the new sheet dropping onto it */
+.saved-art { position: relative; padding-top: 34px; }
+.saved-art .folder { cursor: default; }
+.new-sheet {
+  position: absolute; left: 6%; right: 6%; top: 0; display: grid; gap: 2px;
+  padding: 10px 14px; border: 2px solid #111111; border-radius: 12px; color: var(--on-kind);
+  background: var(--grain-soft) var(--kind);
+}
+.on-kind { color: var(--on-kind); }
+.new-title { font-weight: 800; font-size: 15px; line-height: 19px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (prefers-reduced-motion: no-preference) {
+  .new-sheet.drop { animation: sheet-drop 420ms var(--spring) both; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .new-sheet.drop { animation: fade-in 150ms ease-out both; }
+}
+@keyframes sheet-drop { from { opacity: 0; transform: translateY(-16px); } }
+
+/* Finder (pages that can't be saved) */
+.notice { display: grid; gap: 6px; padding: 16px; border: 1px solid var(--line); border-radius: 18px; background: var(--control); }
+.finder-list { display: grid; gap: 6px; }
+.finder-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--control); color: var(--ink);
+  text-align: start; cursor: pointer;
+}
+.finder-text { flex: 1; min-width: 0; display: grid; }
+.finder-title { font-weight: 700; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

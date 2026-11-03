@@ -1,202 +1,195 @@
-// The popup: saving, duplicate notice, restricted pages and storage failures.
+// The popup: Save, kind picker, collections, Saved + Undo, Already saved, Deleted + Undo, finder, errors and drafts.
 (function () {
   'use strict';
   const { test, assert, until, fixture } = T;
-  const PAGE = { id: 7, url: 'https://example.com/article#intro', title: 'An Article' };
+  const PIN = { id: 7, url: 'https://www.pinterest.com/pin/123#top', title: 'Swiss Style posters' };
+  const PIN_URL = 'https://www.pinterest.com/pin/123';
+  const COLS = { schema: 2, collections: [{ id: 'c1', name: 'Rebrand inspo', createdAt: '2026-01-01T00:00:00.000Z' }, { id: 'c2', name: 'Recipes', createdAt: '2026-01-02T00:00:00.000Z' }] };
+  const saved = (extra = {}) => ({ url: PIN_URL, title: 'Swiss Style posters', kind: 'look', note: 'for the rebrand', collections: ['c1'], pinned: false, visits: 3, savedAt: '2026-09-14T10:00:00.000Z', ...extra });
 
-  async function openPopup({ tab = PAGE, data, drafts = createMemoryStorage(), chrome } = {}) {
+  async function openPopup({ tab = PIN, data = COLS, drafts = createMemoryStorage(), chrome } = {}) {
     chrome = chrome || createChromeStub({ tab, data });
-    const root = fixture();
-    let closed = 0;
-    await LinkSaverPopup.mount(root, { chrome, drafts, close: () => { closed += 1; } });
-    const $ = (sel) => root.querySelector(sel);
-    return {
-      chrome, root, drafts, $,
-      get closed() { return closed; },
-      text: () => root.textContent,
-      heading: () => $('h1').textContent,
-      submit: () => $('form').requestSubmit(),
-      type(sel, value) {
-        $(sel).value = value;
-        $(sel).dispatchEvent(new Event('input', { bubbles: true }));
-      },
-    };
+    const root = fixture(); let closed = 0;
+    await StashPopup.mount(root, { chrome, drafts, close: () => { closed += 1; } });
+    const $ = (s) => root.querySelector(s), $$ = (s) => [...root.querySelectorAll(s)];
+    const button = (text) => $$('button').find((b) => b.textContent.trim() === text);
+    return { chrome, root, drafts, $, $$, button, get closed() { return closed; }, text: () => root.textContent,
+      type(sel, v) { const el = $(sel); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); },
+      submit: () => $('form').requestSubmit() };
   }
+  const menuItems = () => [...document.querySelectorAll('.menu [role^="menuitem"]')];
 
-  test('popup: saves the current page with a note and tags', async () => {
+  test('popup: save detects the kind, labels the note, and files into the chosen collection', async () => {
     const p = await openPopup();
-    assert.equal(p.heading(), 'Save page');
-    assert.equal(p.$('#title').value, 'An Article');
-    assert.includes(p.$('.url').textContent, 'https://example.com/article');
+    assert.equal(p.$('.kind-chip').textContent, 'Look ▾');
+    assert.equal(p.$('.preview').dataset.kind, 'look');
+    assert.equal(p.$('.title').textContent, 'Swiss Style posters');
+    assert.includes(p.$('.site').textContent, 'pinterest.com');
+    const note = p.$('textarea'); assert.equal(p.$(`label[for="${note.id}"]`).textContent, 'Note · optional');
     assert.equal(p.$('button[type=submit]').textContent, 'Save');
-    p.type('#note', 'For the weekend');
-    p.type('#tags', 'Reading, long');
+    p.type('textarea', 'Layout ideas');
+    p.button('Rebrand inspo').click();
+    assert.equal(p.$('button[type=submit]').textContent, 'Save to Rebrand inspo');
+    p.button('☆ Pin to top').click();
     p.submit();
-    await until(() => p.$('.status-success'), 'success message');
-    const saved = p.chrome.data['link:https://example.com/article'];
-    assert.equal(saved.title, 'An Article');
-    assert.equal(saved.note, 'For the weekend');
-    assert.deepEqual(saved.tags, ['reading', 'long']);
-    assert.ok(saved.savedAt);
-    assert.equal(p.heading(), 'Saved');
-    await until(() => p.closed === 1, 'popup to close itself');
+    await until(() => p.$('.screen-saved'), 'saved screen');
+    const s = p.chrome.data[`link:${PIN_URL}`];
+    assert.equal(s.kind, 'look'); assert.equal(s.note, 'Layout ideas'); assert.deepEqual(s.collections, ['c1']); assert.equal(s.pinned, true);
+    assert.equal(p.$('.headline').textContent, 'Filed in Rebrand inspo');
+    assert.equal(p.$('.new-sheet').dataset.kind, 'look');
   });
 
-  test('popup: the title can be edited before saving', async () => {
+  test('popup: the Saved screen never closes on a timer, and Undo puts everything back', async () => {
     const p = await openPopup();
-    p.type('#title', 'My own title');
-    p.submit();
-    await until(() => p.$('.status-success'), 'success message');
-    assert.equal(p.chrome.data['link:https://example.com/article'].title, 'My own title');
+    p.type('textarea', 'keep me'); p.submit();
+    await until(() => p.$('.screen-saved'), 'saved screen');
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(p.closed, 0, 'no auto-close');
+    p.button('Undo').click();
+    await until(() => p.$('.screen-save'), 'back to the form');
+    assert.equal(p.chrome.data[`link:${PIN_URL}`], undefined, 'save removed');
+    assert.equal(p.$('textarea').value, 'keep me');
+    assert.includes(p.$('.status').textContent, 'Not saved');
   });
 
-  test('popup: an already-saved page says so and offers Update and Remove', async () => {
-    const data = { 'link:https://example.com/article': {
-      url: 'https://example.com/article', title: 'An Article', note: 'old note', tags: ['a', 'b'], savedAt: '2026-03-04T10:00:00.000Z',
-    } };
-    const p = await openPopup({ data });
-    assert.equal(p.heading(), 'Already saved');
-    assert.includes(p.$('.notice').textContent, 'You saved this page on');
-    assert.includes(p.$('.notice').textContent, '2026');
-    assert.equal(p.$('#note').value, 'old note');
-    assert.equal(p.$('#tags').value, 'a, b');
-    assert.equal(p.$('#title').readOnly, true);
-    assert.equal(p.$('button[type=submit]').textContent, 'Update');
-    assert.equal(p.$('.danger-quiet').hidden, false);
-
-    p.type('#note', 'new note');
-    p.submit();
-    await until(() => p.$('.status-success'), 'update confirmation');
-    const item = p.chrome.data['link:https://example.com/article'];
-    assert.equal(item.note, 'new note');
-    assert.equal(item.savedAt, '2026-03-04T10:00:00.000Z', 'save date unchanged');
-    assert.equal(Object.keys(p.chrome.data).length, 1, 'no second copy');
-  });
-
-  test('popup: a page saved by another window while open is reported as a duplicate, keeping what was typed', async () => {
+  test('popup: the kind chip opens a menu that explains every kind and changes it', async () => {
     const p = await openPopup();
-    p.type('#note', 'my note');
-    // Simulate a save from elsewhere after the popup opened.
-    p.chrome.data['link:https://example.com/article'] = {
-      url: 'https://example.com/article', title: 'Other', note: '', tags: [], savedAt: '2026-01-01T00:00:00.000Z',
-    };
+    const chip = p.$('.kind-chip'); chip.click();
+    const items = menuItems();
+    assert.equal(items.length, 7);
+    assert.includes(items[2].textContent, 'images, posters, moodboards');
+    assert.equal(document.activeElement, items[2], 'focus starts on the current kind');
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
+    assert.equal(document.activeElement, items[1]);
+    document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    assert.equal(menuItems().length, 0); assert.equal(document.activeElement, chip, 'focus returns to the chip');
+    assert.equal(p.closed, 0, 'Escape closed the menu, not the popup');
+    chip.click(); menuItems().find((b) => b.textContent.startsWith('Watch')).click();
+    assert.equal(p.$('.kind-chip').textContent, 'Watch ▾'); assert.equal(p.$('.preview').dataset.kind, 'watch');
+    p.submit(); await until(() => p.$('.screen-saved'), 'saved');
+    assert.equal(p.chrome.data[`link:${PIN_URL}`].kind, 'watch');
+  });
+
+  test('popup: "+ New" creates a collection and selects it', async () => {
+    const p = await openPopup();
+    p.button('+ New').click();
+    const input = p.$('.chip-input'); input.value = 'Posters';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await until(() => p.button('✓ Posters'), 'new chip selected');
+    assert.ok(p.chrome.data.collections.some((c) => c.name === 'Posters'));
+    assert.equal(p.$('button[type=submit]').textContent, 'Save to Posters');
+  });
+
+  test('popup: the title can be edited with the Edit title button', async () => {
+    const p = await openPopup();
+    p.$('[aria-label="Edit title"]').click();
+    const input = p.$('.title-input'); assert.equal(input.hidden, false);
+    input.value = 'My posters'; input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    assert.equal(p.$('.title').textContent, 'My posters');
+    p.submit(); await until(() => p.$('.screen-saved'), 'saved');
+    assert.equal(p.chrome.data[`link:${PIN_URL}`].title, 'My posters');
+  });
+
+  test('popup: an already-saved page shows when, how often, and lets you change it', async () => {
+    const p = await openPopup({ data: { ...COLS, [`link:${PIN_URL}`]: saved() } });
+    assert.ok(p.$('.screen-already'));
+    assert.includes(p.$('.saved-badge').textContent, 'Saved on');
+    assert.includes(p.text(), 'Opened 3 times');
+    assert.equal(p.$('textarea').value, 'for the rebrand');
+    assert.ok(p.button('✓ Rebrand inspo'));
+    p.type('textarea', 'updated'); p.button('Recipes').click();
+    p.button('Save changes').click();
+    await until(() => /Changes saved/.test(p.$('.status').textContent), 'confirmation');
+    const s = p.chrome.data[`link:${PIN_URL}`];
+    assert.equal(s.note, 'updated'); assert.deepEqual(s.collections, ['c1', 'c2']); assert.equal(s.savedAt, '2026-09-14T10:00:00.000Z');
+  });
+
+  test('popup: Delete from library shows Deleted, and Undo restores it with its note', async () => {
+    const p = await openPopup({ data: { ...COLS, [`link:${PIN_URL}`]: saved() } });
+    p.button('Delete from library').click();
+    await until(() => p.$('.screen-deleted'), 'deleted screen');
+    assert.equal(p.chrome.data[`link:${PIN_URL}`], undefined);
+    assert.includes(p.text(), '“Swiss Style posters” and its note are gone');
+    await new Promise((r) => setTimeout(r, 200)); assert.ok(p.button('Undo'), 'Undo does not time out');
+    p.button('Undo').click();
+    await until(() => p.$('.screen-already'), 'restored');
+    assert.equal(p.chrome.data[`link:${PIN_URL}`].note, 'for the rebrand');
+    assert.includes(p.$('.status').textContent, 'Restored');
+  });
+
+  test('popup: a page saved elsewhere while the popup was open is reported, not copied', async () => {
+    const p = await openPopup();
+    p.chrome.data[`link:${PIN_URL}`] = saved({ note: 'from another window' });
     p.submit();
-    await until(() => p.$('.status-info'), 'duplicate message');
-    assert.includes(p.$('.status').textContent, 'already saved');
-    assert.equal(p.$('#note').value, 'my note');
-    assert.equal(p.$('button[type=submit]').textContent, 'Update');
-    assert.equal(p.closed, 0);
+    await until(() => p.$('.screen-already'), 'already screen');
+    assert.includes(p.$('.status').textContent, 'already in your library');
+    assert.equal(Object.keys(p.chrome.data).filter((k) => k.startsWith('link:')).length, 1);
   });
 
-  test('popup: Remove deletes the saved page', async () => {
-    const data = { 'link:https://example.com/article': {
-      url: 'https://example.com/article', title: 'An Article', note: '', tags: [], savedAt: '2026-03-04T10:00:00.000Z',
-    } };
-    const p = await openPopup({ data });
-    p.$('.danger-quiet').click();
-    await until(() => p.$('.status-success'), 'removed message');
-    assert.equal(Object.keys(p.chrome.data).length, 0);
-    assert.equal(p.$('button[type=submit]').textContent, 'Save');
+  test('popup: on pages that can’t be saved it becomes a finder', async () => {
+    const data = { ...COLS, 'link:https://a.com/': saved({ url: 'https://a.com/', title: 'Brutalist index', pinned: true, visits: 5 }), 'link:https://b.com/': saved({ url: 'https://b.com/', title: 'Grid systems', kind: 'read', pinned: false }) };
+    const p = await openPopup({ tab: { id: 1, url: 'chrome://settings/' }, data });
+    assert.includes(p.$('.notice').textContent, 'This page can’t be saved');
+    assert.equal(p.$('form'), null);
+    assert.equal(p.$('.finder-list').children.length, 1, 'pinned first');
+    p.type('input[type=search]', 'grid');
+    assert.includes(p.$('.finder-list').textContent, 'Grid systems');
+    p.$('.finder-row').click();
+    await until(() => p.chrome.createdTabs.length === 1, 'opened');
+    assert.equal(p.chrome.createdTabs[0].url, 'https://b.com/');
+    assert.equal(p.chrome.data['link:https://b.com/'].visits, 4, 'visit counted');
+    assert.equal(p.closed, 1);
   });
 
-  test('popup: restricted pages show a clear message instead of a form', async () => {
-    for (const [tab, expected] of [
-      [{ id: 1, title: 'Chrome Web Store' }, 'Chrome Web Store'],
-      [{ id: 1, url: 'chrome://settings/' }, 'browser page'],
-      [{ id: 1, url: 'file:///C:/a.pdf' }, 'Files on your computer'],
-      [null, 'No active tab'],
-    ]) {
-      const p = await openPopup({ tab });
-      assert.equal(p.heading(), 'Can\'t save this page');
-      assert.includes(p.$('.notice-warn').textContent, expected);
-      assert.equal(p.$('form'), null);
-      assert.ok(p.$('button.primary'), 'offers a way to the saved links');
-    }
-  });
-
-  test('popup: if the tab can\'t be read at all it still shows a message', async () => {
-    const chrome = createChromeStub({ tab: PAGE });
-    chrome.failures.query = new Error('tabs API unavailable');
+  test('popup: if the tab can’t be read at all it explains instead of failing', async () => {
+    const chrome = createChromeStub({ tab: PIN, data: COLS }); chrome.failures.query = new Error('tabs unavailable');
     const p = await openPopup({ chrome });
-    assert.includes(p.$('.notice-warn').textContent, 'No active tab');
+    assert.includes(p.$('.notice').textContent, 'No active tab');
   });
 
-  test('popup: a storage failure on save shows an error and keeps everything typed', async () => {
+  test('popup: a storage failure on save keeps everything typed and can be retried', async () => {
     const p = await openPopup();
-    p.type('#note', 'important thoughts');
-    p.type('#tags', 'keep');
+    p.type('textarea', 'important thoughts'); p.button('Rebrand inspo').click();
     p.chrome.failures.set = new Error('IO error');
     p.submit();
-    const error = await until(() => p.$('.status-error'), 'error message');
-    assert.equal(error.getAttribute('role'), 'alert');
-    assert.includes(error.textContent, 'Couldn\'t save this page');
-    assert.equal(p.$('#note').value, 'important thoughts');
-    assert.equal(p.$('#tags').value, 'keep');
-    assert.equal(p.$('button[type=submit]').disabled, false, 'can retry');
-    assert.equal(p.closed, 0);
-    // The draft survives closing the popup.
-    assert.includes(p.drafts.getItem(LinkSaverPopup.DRAFT_KEY), 'important thoughts');
-
-    // Retry once storage works again.
-    p.chrome.failures.set = null;
-    p.submit();
-    await until(() => p.$('.status-success'), 'success after retry');
-    assert.equal(p.chrome.data['link:https://example.com/article'].note, 'important thoughts');
-    assert.equal(p.drafts.getItem(LinkSaverPopup.DRAFT_KEY), null, 'draft cleared after saving');
+    const err = await until(() => p.$('.status-error'), 'error');
+    assert.equal(err.getAttribute('role'), 'alert'); assert.includes(err.textContent, 'Couldn’t save this page');
+    assert.equal(p.$('textarea').value, 'important thoughts');
+    assert.includes(p.drafts.getItem(StashPopup.DRAFT_KEY), 'important thoughts');
+    p.chrome.failures.set = null; p.submit();
+    await until(() => p.$('.screen-saved'), 'saved after retry');
+    assert.equal(p.drafts.getItem(StashPopup.DRAFT_KEY), null, 'draft cleared');
   });
 
-  test('popup: a full storage quota is explained', async () => {
+  test('popup: a full storage quota says how to recover', async () => {
     const p = await openPopup();
     p.chrome.failures.set = new Error('QUOTA_BYTES quota exceeded');
     p.submit();
-    const error = await until(() => p.$('.status-error'), 'quota message');
-    assert.includes(error.textContent, 'Storage is full');
+    assert.includes((await until(() => p.$('.status-error'), 'error')).textContent, 'Delete some saves, then save again');
   });
 
-  test('popup: an unsaved draft comes back when the popup reopens on the same page', async () => {
+  test('popup: an unsaved draft comes back on the same page only', async () => {
     const drafts = createMemoryStorage();
-    const first = await openPopup({ drafts });
-    first.type('#note', 'half-written');
-    first.type('#tags', 'later');
-    const again = await openPopup({ drafts });
-    assert.equal(again.$('#note').value, 'half-written');
-    assert.equal(again.$('#tags').value, 'later');
-    // A different page doesn't get it.
-    const other = await openPopup({ drafts, tab: { id: 2, url: 'https://other.com/', title: 'Other' } });
-    assert.equal(other.$('#note').value, '');
+    const a = await openPopup({ drafts }); a.type('textarea', 'half-written'); a.button('Recipes').click();
+    const b = await openPopup({ drafts });
+    assert.equal(b.$('textarea').value, 'half-written'); assert.ok(b.button('✓ Recipes'));
+    const c = await openPopup({ drafts, tab: { id: 2, url: 'https://other.com/', title: 'Other' } });
+    assert.equal(c.$('textarea').value, '');
   });
 
-  test('popup: a lookup failure still lets you try to save', async () => {
-    const chrome = createChromeStub({ tab: PAGE });
-    chrome.failures.get = new Error('read failed');
-    const p = await openPopup({ chrome });
-    assert.ok(p.$('form'), 'form is shown');
-    assert.includes(p.$('.status-error').textContent, 'You can still try saving');
-  });
-
-  test('popup: a note over the limit is refused with a message', async () => {
+  test('popup: Library ↗ opens the library tab; Escape closes the popup', async () => {
     const p = await openPopup();
-    // maxlength stops typing past the limit; this checks the save-time check too.
-    p.$('#note').removeAttribute('maxlength');
-    p.type('#note', 'x'.repeat(LinkSaver.LIMITS.note + 5));
-    p.submit();
-    const error = await until(() => p.$('.status-error'), 'validation message');
-    assert.includes(error.textContent, 'Notes can be up to');
-    assert.equal(Object.keys(p.chrome.data).length, 0);
-  });
-
-  test('popup: "All saved links" opens the list page', async () => {
-    const p = await openPopup();
-    p.$('.link-button').click();
-    await until(() => p.chrome.createdTabs.length === 1, 'new tab');
-    assert.equal(p.chrome.createdTabs[0].url, 'chrome-extension://test-id/list.html');
+    p.root.firstChild.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     assert.equal(p.closed, 1);
+    p.button('Library ↗').click();
+    await until(() => p.chrome.createdTabs.length === 1, 'tab');
+    assert.equal(p.chrome.createdTabs[0].url, 'chrome-extension://test-id/library.html');
   });
 
   test('popup: works when localStorage is unavailable', async () => {
     const p = await openPopup({ drafts: createMemoryStorage({ broken: true }) });
-    p.type('#note', 'still fine');
-    p.submit();
-    await until(() => p.$('.status-success'), 'success message');
+    p.type('textarea', 'still fine'); p.submit();
+    await until(() => p.$('.screen-saved'), 'saved');
   });
 })();

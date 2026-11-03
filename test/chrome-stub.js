@@ -1,4 +1,4 @@
-// An in-memory stand-in for the parts of the chrome.* API Link Saver uses.
+// An in-memory stand-in for the parts of the chrome.* API Stash uses.
 // Each call to createChromeStub() returns an independent fake browser.
 //
 //   const chrome = createChromeStub({ tab: { url, title } });
@@ -72,11 +72,14 @@
 
       runtime: {
         getURL: (path) => `chrome-extension://test-id/${path}`,
+        onInstalled: { addListener: (fn) => stub.installedListeners.push(fn) },
       },
+      installedListeners: [],
 
       action: {
         async setBadgeText({ tabId, text }) { stub.badges.push({ tabId, text }); },
-        async setBadgeBackgroundColor() {},
+        async setBadgeBackgroundColor({ color }) { stub.lastBadgeColor = color; },
+        async setBadgeTextColor() {},
         async setTitle({ tabId, title }) { stub.lastTitle = { tabId, title }; },
       },
 
